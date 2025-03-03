@@ -53,16 +53,148 @@ public:
         
         return false;
     }
-    
+   
+
+    void compute_mass_matrix(SparseMatrix<double>& M) {
+      // Initialize M as a sparse matrix with the correct size
+      M.resize(currPositions.size(), currPositions.size());
+      
+      // Create triplets to build the sparse matrix
+      std::vector<Triplet<double>> MTriplets;
+      MTriplets.reserve(currPositions.size()); // For diagonal mass matrix
+      
+      // Create diagonal mass matrix using voronoiVolumes already computed
+      for (int i = 0; i < voronoiVolumes.size(); i++) {
+          // Calculate mass using density and voronoi volume
+          double mass = voronoiVolumes(i) * density;
+          
+          // If this vertex belongs to a fixed mesh, set mass to effectively infinite
+          // (or in practice, zero for the inverse mass)
+          if (isFixed) {
+              mass = std::numeric_limits<double>::max();
+          }
+          
+          // Add diagonal entries for x, y, z components
+          for (int d = 0; d < 3; d++) {
+              MTriplets.push_back(Triplet<double>(3*i+d, 3*i+d, mass));
+          }
+      }
+      
+      // Build the sparse matrix from triplets
+      M.setFromTriplets(MTriplets.begin(), MTriplets.end());
+    }
+
+
+    void compute_stiffness_matrix(SparseMatrix<double>& K) {
+      // Initialize K as a sparse matrix with the correct size
+      K.resize(currPositions.size(), currPositions.size());
+      
+      // Create triplets to build the sparse matrix
+      std::vector<Triplet<double>> KTriplets;
+      // Each tet contributes up to 144 entries (12x12 element matrix)
+      KTriplets.reserve(T.rows() * 144);
+      
+      // Calculate Lamé parameters from Young's modulus and Poisson ratio
+      double mu = youngModulus / (2.0 * (1.0 + poissonRatio));              // Shear modulus
+      double lambda = (youngModulus * poissonRatio) / 
+                     ((1.0 + poissonRatio) * (1.0 - 2.0 * poissonRatio));  // First Lamé parameter
+      
+      // For each tetrahedron
+      for (int t = 0; t < T.rows(); t++) {
+          // Get tetrahedron vertices
+          Vector4i tet = T.row(t);
+          
+          // Get undeformed vertex positions (from origPositions)
+          Matrix<double, 3, 4> X;
+          for (int i = 0; i < 4; i++) {
+              X.col(i) = origPositions.segment<3>(3 * tet(i));
+          }
+          
+          // Compute edge matrix (relative to first vertex)
+          Matrix3d Dm;
+          Dm.col(0) = X.col(1) - X.col(0);
+          Dm.col(1) = X.col(2) - X.col(0);
+          Dm.col(2) = X.col(3) - X.col(0);
+          
+          // Compute inverse of edge matrix
+          Matrix3d DmInv = Dm.inverse();
+          
+          // Compute shape function derivatives 
+          Matrix<double, 3, 4> B;
+          B.col(0) = -DmInv.col(0) - DmInv.col(1) - DmInv.col(2);
+          B.col(1) = DmInv.col(0);
+          B.col(2) = DmInv.col(1);
+          B.col(3) = DmInv.col(2);
+          
+          // Compute element stiffness matrix
+          Matrix<double, 12, 12> Ke = Matrix<double, 12, 12>::Zero();
+          
+          // Volume of this tetrahedron
+          double vol = tetVolumes(t);
+          
+          // For each pair of vertices in the tetrahedron
+          for (int i = 0; i < 4; i++) {
+              for (int j = 0; j < 4; j++) {
+                  // Compute the 3x3 block for this vertex pair
+                  Matrix3d Kij = Matrix3d::Zero();
+                  
+                  // Add contribution from first Lamé parameter (lambda)
+                  Kij += lambda * B.col(i) * B.col(j).transpose();
+                  
+                  // Add contribution from second Lamé parameter (mu)
+                  for (int k = 0; k < 3; k++) {
+                      for (int l = 0; l < 3; l++) {
+                          Kij(k, l) += mu * (B(l, i) * B(k, j) + B(k, i) * B(l, j));
+                      }
+                  }
+                  
+                  // Scale by tet volume
+                  Kij *= vol;
+                  
+                  // Copy the 3x3 block to the element stiffness matrix
+                  for (int k = 0; k < 3; k++) {
+                      for (int l = 0; l < 3; l++) {
+                          Ke(3*i+k, 3*j+l) = Kij(k, l);
+                      }
+                  }
+              }
+          }
+          
+          // If the mesh is fixed, don't add its stiffness contributions
+          if (isFixed) continue;
+          
+          // Add element stiffness matrix to global stiffness matrix
+          for (int i = 0; i < 4; i++) {
+              for (int j = 0; j < 4; j++) {
+                  int vi = tet(i);
+                  int vj = tet(j);
+                  
+                  for (int di = 0; di < 3; di++) {
+                      for (int dj = 0; dj < 3; dj++) {
+                          int row = 3 * vi + di;
+                          int col = 3 * vj + dj;
+                          
+                          KTriplets.push_back(Triplet<double>(row, col, Ke(3*i+di, 3*j+dj)));
+                      }
+                  }
+              }
+          }
+      }
+      
+      // Build the sparse matrix from triplets
+      K.setFromTriplets(KTriplets.begin(), KTriplets.end());
+    }
+
 
     //Computing the K, M, D matrices per mesh.
     void create_global_matrices(const double timeStep, const double _alpha, const double _beta)
     {
         
         //TODO (change these stubs...)
-        K.resize(currVelocities.size(), currVelocities.size());
-        M = K;
-        D = M;
+      // K.resize(currVelocities.size(), currVelocities.size());
+      compute_stiffness_matrix(K);
+      compute_mass_matrix(M); 
+      D = _alpha*M+_beta*K;
     }
     
     //returns center of mass
