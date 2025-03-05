@@ -189,6 +189,9 @@ public:
     //Computing the K, M, D matrices per mesh.
     void create_global_matrices(const double timeStep, const double _alpha, const double _beta)
     {
+        
+        //TODO (change these stubs...)
+      // K.resize(currVelocities.size(), currVelocities.size());
       compute_stiffness_matrix(K);
       compute_mass_matrix(M); 
       D = _alpha*M+_beta*K;
