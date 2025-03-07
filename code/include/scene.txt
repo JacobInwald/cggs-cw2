@@ -56,13 +56,14 @@ public:
     
     // This should be called whenever the timestep changes.
     void init_scene(double _timeStep, const double alpha, const double beta) {
-        timeStep = _timeStep;
+      timeStep = _timeStep;
 
-        // Vectors to collect per-mesh FEM matrices.
-        std::vector<SparseMatrix<double>> massMatrices;
-        std::vector<SparseMatrix<double>> stiffnessMatrices;
-        std::vector<SparseMatrix<double>> dampingMatrices;
-      
+      globalOrigPositions = globalPositions;
+      // Vectors to collect per-mesh FEM matrices.
+      std::vector<SparseMatrix<double>> massMatrices;
+      std::vector<SparseMatrix<double>> stiffnessMatrices;
+      std::vector<SparseMatrix<double>> dampingMatrices;
+    
         // For each mesh, compute its local FEM matrices.
         for (int i = 0; i < meshes.size(); i++) {
             meshes[i].create_global_matrices(timeStep, alpha, beta);

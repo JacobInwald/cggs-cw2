@@ -27,6 +27,6 @@ target_compile_definitions(common_includes INTERFACE "-DTUTORIAL_DATA_PATH=\"${T
 add_subdirectory(Section12)
 add_subdirectory(Grading1)
 add_subdirectory(Grading2)
-
+add_subdirectory(Testing)
 
 
