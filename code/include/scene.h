@@ -71,17 +71,18 @@ public:
             dampingMatrices.push_back(meshes[i].D);
         }
         
-        // Assemble the global matrices as block–diagonals.
+        // Assemble the global matrices
         sparse_block_diagonal(massMatrices, M);
         sparse_block_diagonal(stiffnessMatrices, K);
         sparse_block_diagonal(dampingMatrices, D);
         
-        // Construct the left–hand side system matrix: A = M + timeStep * D + (timeStep^2) * K
+        // Construct lhs
         A = M + timeStep * D + (timeStep * timeStep) * K;
         
-        // Pre–factorize A using the SparseLU solver.
+        // Pre–factorize A
         ASolver.analyzePattern(A);
         ASolver.factorize(A);
+        mesh2global();
     }
     
     // Performs the integration step for global velocities.
