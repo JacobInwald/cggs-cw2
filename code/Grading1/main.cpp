@@ -21,6 +21,12 @@ double max_sparse(const Eigen::SparseMatrix<double>& mat, int &rowIndex, int &co
     for (int k=0; k<mat.outerSize(); ++k)
         for (SparseMatrix<double>::InnerIterator it(mat,k); it; ++it)
         {
+            if (std::isnan(it.value())){
+                rowIndex  = it.row();
+                colIndex = it.col();
+                return std::numeric_limits<double>::quiet_NaN();
+            }
+                        
             if (it.value()>maxValue){
                 maxValue = it.value();
                 rowIndex  = it.row();
@@ -60,7 +66,7 @@ int main()
                 Vxyz.segment(3*i,3)=objV.row(i).transpose();
             
             //cout<<"Vxyz: "<<Vxyz<<endl;
-            Mesh m(Vxyz,objF, objT, 0, youngModulus, PoissonRatio, density, false, RowVector3d::Zero(), RowVector4d::Zero());
+            Mesh m(Vxyz,objF, objT, 0, youngModulus, PoissonRatio, density, false, RowVector3d::Zero(), {1.0,0.0,0.0,0.0});
             
             auto start = std::chrono::high_resolution_clock::now();
             m.create_global_matrices(timeStep, alpha, beta);
@@ -79,20 +85,23 @@ int main()
             if ((durVectorGT(0)*10.0 < (double)(duration.count())/1000.0)&&(durVectorGT(0)>1000.0)){
                 cout<<"Running took too long! "<<endl;
             } else {
-                int rowIndex, colIndex;
-                if (max_sparse(MGT-m.M, rowIndex, colIndex)<=tolerance){
+                 int rowIndex, colIndex;
+                double maxValue = max_sparse(MGT-m.M, rowIndex, colIndex);
+                if ((maxValue<=tolerance)&&(!std::isnan(maxValue))){
                     cout<<"M is good!"<<endl;
                     pointGain++;
                 } else {
                     cout<<"M("<<rowIndex<<","<<colIndex<<")="<<m.M.coeff(rowIndex, colIndex)<<", Ground-truth M("<<rowIndex<<","<<colIndex<<")="<<MGT.coeff(rowIndex, colIndex)<<endl;
                 }
-                if (max_sparse(KGT-m.K, rowIndex, colIndex)<=tolerance){
+                maxValue = max_sparse(KGT-m.K, rowIndex, colIndex);
+                if ((maxValue<=tolerance)&&(!std::isnan(maxValue))){
                     cout<<"K is good!"<<endl;
                     pointGain++;
                 } else {
                     cout<<"K("<<rowIndex<<","<<colIndex<<")="<<m.K.coeff(rowIndex, colIndex)<<", Ground-truth K("<<rowIndex<<","<<colIndex<<")="<<KGT.coeff(rowIndex, colIndex)<<endl;
                 }
-                if (max_sparse(DGT-m.D, rowIndex, colIndex)<=tolerance){
+                maxValue = max_sparse(DGT-m.D, rowIndex, colIndex);
+                if ((maxValue<=tolerance)&&(!std::isnan(maxValue))){
                     cout<<"D is good!"<<endl;
                     pointGain++;
                 } else {
