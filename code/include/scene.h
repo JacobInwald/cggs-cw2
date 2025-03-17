@@ -66,7 +66,7 @@ public:
       
         // For each mesh, compute its local FEM matrices.
         for (int i = 0; i < meshes.size(); i++) {
-            // if (meshes[i].isFixed) continue;
+            if (meshes[i].isFixed) continue;
             meshes[i].create_global_matrices(timeStep, alpha, beta);
             massMatrices.push_back(meshes[i].M);
             stiffnessMatrices.push_back(meshes[i].K);
