@@ -22,7 +22,8 @@ polyscope::VolumeMeshVertexVectorQuantity* pVelocityField;
 
 double currTime = 0;
 double timeStep = 0.02; //assuming 50 fps
-
+int endStep = 10000000;
+int step = 0;
 Scene scene;
 
 MatrixXd to_row_positions(const VectorXd& positions){
@@ -37,7 +38,7 @@ MatrixXd to_row_positions(const VectorXd& positions){
 
 void callback_function() {
     ImGui::PushItemWidth(50);
-    
+    if (step++ > endStep) return; 
     ImGui::TextUnformatted("Animation Parameters");
     ImGui::Separator();
     bool changed = ImGui::Checkbox("isAnimating", &isAnimating);
@@ -56,12 +57,18 @@ void callback_function() {
 int main(int argc, char *argv[])
 { 
     string sceneFP = "epcot";
+    double alpha = 0.1;
+    double beta = 0.1;
     if (argc > 1) sceneFP = argv[1];
-  
+    if (argc > 2) timeStep = atof(argv[2]); 
+    if (argc > 3) alpha = atof(argv[3]);
+    if (argc > 4) alpha = atof(argv[4]);
+    if (argc > 5) endStep = atoi(argv[5]);
+
     scene.load_scene(sceneFP + "-scene.txt");
     polyscope::init();
     
-    scene.init_scene(timeStep, 0.1, 0.1);
+    scene.init_scene(timeStep, alpha, beta);
     //scene.update_scene(0.0, CRCoeff, tolerance, maxIterations);
     
     // Visualization
