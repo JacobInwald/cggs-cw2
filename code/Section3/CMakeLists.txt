@@ -1,6 +1,6 @@
 # Set the project name
 cmake_minimum_required(VERSION 3.20)
-project(Testing)
+project(Section3)
 
 # Add the executable
 file(GLOB CODE_SOURCES ../include/*.c)

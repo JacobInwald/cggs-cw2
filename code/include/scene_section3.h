@@ -7,7 +7,7 @@
 #include "auxfunctions.h"
 #include "readMESH.h"
 #include "sparse_block_diagonal.h"
-#include "mesh.h"
+#include "mesh_section3.h"
 #include "sparse_block.h"
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
