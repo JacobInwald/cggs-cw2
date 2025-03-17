@@ -53,10 +53,12 @@ void callback_function() {
 }
 
 
-int main()
-{
-    
-    scene.load_scene("epcot-scene.txt");
+int main(int argc, char *argv[])
+{ 
+    string sceneFP = "epcot";
+    if (argc > 1) sceneFP = argv[1];
+  
+    scene.load_scene(sceneFP + "-scene.txt");
     polyscope::init();
     
     scene.init_scene(timeStep, 0.1, 0.1);

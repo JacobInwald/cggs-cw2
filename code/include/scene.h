@@ -57,7 +57,8 @@ public:
     // This should be called whenever the timestep changes.
     void init_scene(double _timeStep, const double alpha, const double beta) {
         timeStep = _timeStep;
-
+        mesh2global();
+        global2Mesh();
         // Vectors to collect per-mesh FEM matrices.
         std::vector<SparseMatrix<double>> massMatrices;
         std::vector<SparseMatrix<double>> stiffnessMatrices;
@@ -65,6 +66,7 @@ public:
       
         // For each mesh, compute its local FEM matrices.
         for (int i = 0; i < meshes.size(); i++) {
+            // if (meshes[i].isFixed) continue;
             meshes[i].create_global_matrices(timeStep, alpha, beta);
             massMatrices.push_back(meshes[i].M);
             stiffnessMatrices.push_back(meshes[i].K);
@@ -82,7 +84,6 @@ public:
         // Pre–factorize A
         ASolver.analyzePattern(A);
         ASolver.factorize(A);
-        mesh2global();
     }
     
     // Performs the integration step for global velocities.
@@ -102,6 +103,7 @@ public:
     
     // Update the scene: integrate velocity, update positions, and copy back to meshes.
     void update_scene(double timeStep){
+        mesh2global();
         integrate_global_velocity(timeStep);
         integrate_global_position(timeStep);
         global2Mesh();
@@ -122,7 +124,13 @@ public:
         int oldTsize = globalT.rows();
         globalT.conservativeResize(globalT.rows() + T.rows(), 4);
         globalT.block(oldTsize, 0, T.rows(), 4) = T.array() + globalPositions.size()/3;  // offset T to global index
+     
+        // Patch Start
+        int oldOrigSize = globalOrigPositions.size(); 
         globalOrigPositions.conservativeResize(globalOrigPositions.size() + Vxyz.size());
+        globalOrigPositions.segment(oldOrigSize, Vxyz.size()) = m.origPositions;
+        // Patch End
+
         globalPositions.conservativeResize(globalPositions.size() + Vxyz.size());
         globalVelocities.conservativeResize(globalPositions.size());
         int oldIMsize = globalInvMasses.size();

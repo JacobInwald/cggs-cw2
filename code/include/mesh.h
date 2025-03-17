@@ -5,6 +5,7 @@
 #include <fstream>
 #include "readMESH.h"
 #include "auxfunctions.h"
+#include "sparse_block_diagonal.h"
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
 
@@ -84,114 +85,255 @@ public:
       M.setFromTriplets(MTriplets.begin(), MTriplets.end());
     }
 
+    //--------------------------------------------------------------------
+    // Function: create_element_stiffness_matrix
+    //
+    // Computes the 12x12 element stiffness matrix for a tetrahedron using the Q-matrix design.
+    // Input:
+    //   tet: a Vector4i containing the indices of the four vertices of the tetrahedron.
+    //   origPositions: the global vector of undeformed vertex positions in xyz repeated order.
+    //   youngModulus, poissonRatio: material parameters.
+    // Output:
+    //   Returns a 12x12 stiffness matrix for the element.
+    Eigen::Matrix<double, 12, 12> create_element_stiffness_matrix(
+        const Eigen::Vector4i &tet,
+        const Eigen::VectorXd &origPositions,
+        double youngModulus,
+        double poissonRatio)
+    {
+        // 1. Gather the undeformed positions of the tetrahedron vertices.
+        Eigen::Matrix<double, 3, 4> X;
+        for (int i = 0; i < 4; i++) {
+            X.col(i) = origPositions.segment<3>(3 * tet(i));
+        }
 
-    void compute_stiffness_matrix(SparseMatrix<double>& K) {
-      // Initialize K as a sparse matrix with the correct size
-      K.resize(currPositions.size(), currPositions.size());
+        // 2. Form the edge matrix: Dm = [X1 - X0, X2 - X0, X3 - X0] and invert.
+        Eigen::Matrix3d Dm;
+        Dm.col(0) = X.col(1) - X.col(0);
+        Dm.col(1) = X.col(2) - X.col(0);
+        Dm.col(2) = X.col(3) - X.col(0);
+        Eigen::Matrix3d DmInv = Dm.inverse();
+
+        // 3. Compute gradients of shape functions: dN(i) = grad(Ni)
+        Eigen::Matrix<double, 3, 4> dN;
+        dN.col(0) = - (DmInv.col(0) + DmInv.col(1) + DmInv.col(2));
+        dN.col(1) = DmInv.col(0);
+        dN.col(2) = DmInv.col(1);
+        dN.col(3) = DmInv.col(2);
+
+        // 4. Compute the tetrahedron volume: |det(Dm)|/6.
+        double volume = std::abs(Dm.determinant()) / 6.0;
+
+        // 5. Compute Lamé parameters.
+        double mu = youngModulus / (2.0 * (1.0 + poissonRatio));
+        double lambda = (youngModulus * poissonRatio) / ((1.0 + poissonRatio) * (1.0 - 2.0 * poissonRatio));
+
+        // 6. Build the constitutive matrix C (6x6) in Voigt notation.
+        Eigen::Matrix<double, 6, 6> C = Eigen::Matrix<double, 6, 6>::Zero();
+        C(0,0) = lambda + 2.0*mu; C(1,1) = lambda + 2.0*mu; C(2,2) = lambda + 2.0*mu;
+        C(0,1) = lambda; C(0,2) = lambda;
+        C(1,0) = lambda; C(1,2) = lambda;
+        C(2,0) = lambda; C(2,1) = lambda;
+        C(3,3) = mu;
+        C(4,4) = mu;
+        C(5,5) = mu;
+
+        // 7. Build the strain-displacement matrix B (6x12).
+        Eigen::Matrix<double, 6, 12> B = Eigen::Matrix<double, 6, 12>::Zero();
+        for (int i = 0; i < 4; i++)
+        {
+            double dNx = dN(0, i);
+            double dNy = dN(1, i);
+            double dNz = dN(2, i);
+            int col = 3 * i;
+            // Normal strains.
+            B(0, col + 0) = dNx;  // e_xx
+            B(1, col + 1) = dNy;  // e_yy
+            B(2, col + 2) = dNz;  // e_zz
+            // Shear strains.
+            B(3, col + 0) = dNy;  // e_xy: du_x/dy
+            B(3, col + 1) = dNx;  // e_xy: du_y/dx
+            B(4, col + 1) = dNz;  // e_yz: du_y/dz
+            B(4, col + 2) = dNy;  // e_yz: du_z/dy
+            B(5, col + 2) = dNx;  // e_zx: du_z/dx
+            B(5, col + 0) = dNz;  // e_zx: du_x/dz
+        }
+
+        // 8. Compute the element stiffness matrix: K_e = B^T * C * B * volume.
+        Eigen::Matrix<double, 12, 12> Ke = B.transpose() * (C * B);
+        Ke *= volume;
+
+        return Ke;
+    }
+
+  // Inside Mesh.h (within the Mesh class definition):
+
+  // Computes the 12x12 element stiffness matrix for a given tetrahedron.
+  // Uses the mesh's origPositions, youngModulus, and poissonRatio.
+  SparseMatrix<double> create_element_stiffness_matrix(const Eigen::Vector4i &tet) {
+      // 1. Gather the undeformed positions of the tetrahedron's vertices.
+      Eigen::Matrix<double, 3, 4> X;
+      for (int i = 0; i < 4; i++) {
+          X.col(i) = origPositions.segment<3>(3 * tet(i));
+      }
       
-      // Create triplets to build the sparse matrix
-      std::vector<Triplet<double>> KTriplets;
-      // Each tet contributes up to 144 entries (12x12 element matrix)
-      KTriplets.reserve(T.rows() * 144);
+      // 2. Form the edge matrix: Dm = [X1 - X0, X2 - X0, X3 - X0] and compute its inverse.
+      Eigen::Matrix3d Dm;
+      Dm.col(0) = X.col(1) - X.col(0);
+      Dm.col(1) = X.col(2) - X.col(0);
+      Dm.col(2) = X.col(3) - X.col(0);
+      Eigen::Matrix3d DmInv = Dm.inverse();
       
-      // Calculate Lamé parameters from Young's modulus and Poisson ratio
-      double mu = youngModulus / (2.0 * (1.0 + poissonRatio));              // Shear modulus
-      double lambda = (youngModulus * poissonRatio) / 
-                     ((1.0 + poissonRatio) * (1.0 - 2.0 * poissonRatio));  // First Lamé parameter
+      // 3. Compute shape function gradients with respect to the rest coordinates.
+      Eigen::Matrix<double, 3, 4> dN;
+      dN.col(0) = -(DmInv.col(0) + DmInv.col(1) + DmInv.col(2));
+      dN.col(1) = DmInv.col(0);
+      dN.col(2) = DmInv.col(1);
+      dN.col(3) = DmInv.col(2);
       
-      // For each tetrahedron
-      for (int t = 0; t < T.rows(); t++) {
-          // Get tetrahedron vertices
-          Vector4i tet = T.row(t);
-          
-          // Get undeformed vertex positions (from origPositions)
-          Matrix<double, 3, 4> X;
+      // 4. Compute the tetrahedron volume: |det(Dm)|/6.
+      double volume = std::abs(Dm.determinant()) / 6.0;
+      
+      // 5. Compute Lamé parameters.
+      double mu = youngModulus / (2.0 * (1.0 + poissonRatio));
+      double lambda = (youngModulus * poissonRatio) / ((1.0 + poissonRatio) * (1.0 - 2.0 * poissonRatio));
+      
+      // 6. Build the 6x6 constitutive matrix C (Voigt notation).
+      Eigen::Matrix<double, 6, 6> C = Eigen::Matrix<double, 6, 6>::Zero();
+      C(0,0) = lambda + 2.0*mu;  C(1,1) = lambda + 2.0*mu;  C(2,2) = lambda + 2.0*mu;
+      C(0,1) = lambda; C(0,2) = lambda;
+      C(1,0) = lambda; C(1,2) = lambda;
+      C(2,0) = lambda; C(2,1) = lambda;
+      C(3,3) = mu;
+      C(4,4) = mu;
+      C(5,5) = mu;
+      
+      // 7. Build the 6x12 strain-displacement matrix B.
+      Eigen::Matrix<double, 6, 12> B = Eigen::Matrix<double, 6, 12>::Zero();
+      for (int i = 0; i < 4; i++) {
+          double dNx = dN(0, i);
+          double dNy = dN(1, i);
+          double dNz = dN(2, i);
+          int col = 3 * i;
+          // Normal strains: e_xx, e_yy, e_zz.
+          B(0, col + 0) = dNx;
+          B(1, col + 1) = dNy;
+          B(2, col + 2) = dNz;
+          // Shear strains:
+          // e_xy = du_x/dy + du_y/dx.
+          B(3, col + 0) = dNy;
+          B(3, col + 1) = dNx;
+          // e_yz = du_y/dz + du_z/dy.
+          B(4, col + 1) = dNz;
+          B(4, col + 2) = dNy;
+          // e_zx = du_z/dx + du_x/dz.
+          B(5, col + 2) = dNx;
+          B(5, col + 0) = dNz;
+      }
+      
+      // 8. Compute and return the element stiffness matrix: K_e = B^T * C * B * volume.
+      Eigen::Matrix<double, 12, 12> Ke = B.transpose() * (C * B);
+      Ke *= volume;
+      
+      return Ke.sparseView();
+  }
+
+
+  // 2. Create the assembly (permutation) matrix Q.
+  //    This maps global DOFs to local DOFs.
+  //    Q is defined to be of size (12*T x 3*numVerts), where T = number of tetrahedra.
+  void create_permutation_matrix(Eigen::SparseMatrix<double> &Q) {
+      int T_count = T.rows();                        // number of tetrahedra
+      int numVerts = origPositions.size() / 3;         // number of vertices
+      int rows = 12 * T_count;                         // local DOF count
+      int cols = 3 * numVerts;                         // global DOF count
+      
+      std::vector<Eigen::Triplet<double>> triplets;
+      // Reserve space: each tet contributes 12 entries.
+      triplets.reserve(12 * T_count);
+      
+      // For each tetrahedron e, for each local vertex i, for each coordinate di:
+      // localDOF index = 12*e + 3*i + di, and maps to globalDOF = 3*(T(e,i)) + di.
+      for (int e = 0; e < T_count; e++) {
           for (int i = 0; i < 4; i++) {
-              X.col(i) = origPositions.segment<3>(3 * tet(i));
-          }
-          
-          // Compute edge matrix (relative to first vertex)
-          Matrix3d Dm;
-          Dm.col(0) = X.col(1) - X.col(0);
-          Dm.col(1) = X.col(2) - X.col(0);
-          Dm.col(2) = X.col(3) - X.col(0);
-          
-          // Compute inverse of edge matrix
-          Matrix3d DmInv = Dm.inverse();
-          
-          // Compute shape function derivatives 
-          Matrix<double, 3, 4> B;
-          B.col(0) = -DmInv.col(0) - DmInv.col(1) - DmInv.col(2);
-          B.col(1) = DmInv.col(0);
-          B.col(2) = DmInv.col(1);
-          B.col(3) = DmInv.col(2);
-          
-          // Compute element stiffness matrix
-          Matrix<double, 12, 12> Ke = Matrix<double, 12, 12>::Zero();
-          
-          // Volume of this tetrahedron
-          double vol = tetVolumes(t);
-          
-          // For each pair of vertices in the tetrahedron
-          for (int i = 0; i < 4; i++) {
-              for (int j = 0; j < 4; j++) {
-                  // Compute the 3x3 block for this vertex pair
-                  Matrix3d Kij = Matrix3d::Zero();
-                  
-                  // Add contribution from first Lamé parameter (lambda)
-                  Kij += lambda * B.col(i) * B.col(j).transpose();
-                  
-                  // Add contribution from second Lamé parameter (mu)
-                  for (int k = 0; k < 3; k++) {
-                      for (int l = 0; l < 3; l++) {
-                          Kij(k, l) += mu * (B(l, i) * B(k, j) + B(k, i) * B(l, j));
-                      }
-                  }
-                  
-                  // Scale by tet volume
-                  Kij *= vol;
-                  
-                  // Copy the 3x3 block to the element stiffness matrix
-                  for (int k = 0; k < 3; k++) {
-                      for (int l = 0; l < 3; l++) {
-                          Ke(3*i+k, 3*j+l) = Kij(k, l);
-                      }
-                  }
-              }
-          }
-          
-          // If the mesh is fixed, don't add its stiffness contributions
-          if (isFixed) continue;
-          
-          // Add element stiffness matrix to global stiffness matrix
-          for (int i = 0; i < 4; i++) {
-              for (int j = 0; j < 4; j++) {
-                  int vi = tet(i);
-                  int vj = tet(j);
-                  
-                  for (int di = 0; di < 3; di++) {
-                      for (int dj = 0; dj < 3; dj++) {
-                          int row = 3 * vi + di;
-                          int col = 3 * vj + dj;
-                          
-                          KTriplets.push_back(Triplet<double>(row, col, Ke(3*i+di, 3*j+dj)));
-                      }
-                  }
+              int vertexIndex = T(e, i);
+              for (int di = 0; di < 3; di++) {
+                  int localDOF = 12 * e + 3 * i + di;
+                  int globalDOF = 3 * vertexIndex + di;
+                  triplets.emplace_back(localDOF, globalDOF, 1.0);
               }
           }
       }
+      Q.resize(rows, cols);
+      Q.setFromTriplets(triplets.begin(), triplets.end());
+  }
+
+  // Assembles the global stiffness matrix K using the Q-matrix approach.
+  // This function computes each element's stiffness matrix using create_element_stiffness_matrix,
+  // builds a block-diagonal Kprime from them, constructs the assembly matrix Q, and finally sets:
+  //   K = Q^T * Kprime * Q.
+  // The assembled global stiffness matrix is stored in the Mesh attribute K.
+  void compute_stiffness_matrix(SparseMatrix<double> &K) {
+      int T_count = T.rows();  // number of tetrahedra
+      int dimKprime = 12 * T_count;
       
-      // Build the sparse matrix from triplets
-      K.setFromTriplets(KTriplets.begin(), KTriplets.end());
+      // 1. Build the block-diagonal matrix Kprime by computing each element's stiffness matrix.
+      std::vector<SparseMatrix<double>> localK;
+
+      for (int e = 0; e < T_count; e++) {
+          // Get the tetrahedron's vertex indices.
+          Eigen::Vector4i tet = T.row(e);
+          // Compute the element stiffness matrix.
+          SparseMatrix<double> Ke = create_element_stiffness_matrix(tet);
+          localK.push_back(Ke);
+          
+      }
+      Eigen::SparseMatrix<double> Kprime(dimKprime, dimKprime);
+      
+      sparse_block_diagonal(localK, Kprime);
+
+      // 2. Build the assembly (permutation) matrix Q.
+      Eigen::SparseMatrix<double> Q;
+      create_permutation_matrix(Q);
+      
+      // 3. Assemble the global stiffness matrix: K = Q^T * Kprime * Q.
+      // Compute the product in two steps for clarity.
+      Eigen::SparseMatrix<double> A = Kprime * Q;
+      K = Q.transpose() * A;
+  }
+
+    bool containsNaN(const Eigen::SparseMatrix<double>& mat) {
+      for (int k = 0; k < mat.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(mat, k); it; ++it) {
+            if (std::isnan(it.value())) {
+                return true;
+            }
+        }
+      }
+      return false;
+    }
+
+    bool allNaN(const Eigen::SparseMatrix<double>& mat) {
+      for (int k = 0; k < mat.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(mat, k); it; ++it) {
+            if (!std::isnan(it.value())) {
+              return false; 
+            }
+        }
+      }
+      return true;
     }
 
 
     //Computing the K, M, D matrices per mesh.
     void create_global_matrices(const double timeStep, const double _alpha, const double _beta)
     {
+      // K.resize(currVelocities.size(), currVelocities.size());
       compute_stiffness_matrix(K);
       compute_mass_matrix(M); 
-      D = _alpha*M+_beta*K;
+      D = _alpha*M + _beta*K;
+      cout << containsNaN(M) << " " << containsNaN(K) << " " << containsNaN(D) << endl;
+      cout << allNaN(M) << " " << allNaN(K) << " " << allNaN(D) << endl;
     }
     
     //returns center of mass
@@ -247,7 +389,7 @@ public:
         //cout<<"after natrualCOM origPositions: "<<origPositions<<endl;
         
         for (int i=0;i<origPositions.size();i+=3)
-            origPositions.segment(i,3)<<(QRot(origPositions.segment(i,3).transpose(), userOrientation)+userCOM).transpose();
+            origPositions.segment(i,3) = (QRot(origPositions.segment(i,3).transpose(), userOrientation)+userCOM).transpose();
         
         currPositions=origPositions;
         
