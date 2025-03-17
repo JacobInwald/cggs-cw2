@@ -16,7 +16,6 @@ using namespace std;
 //the class the contains each individual rigid objects and their functionality
 class Mesh{
 public:
-    
     //position
     VectorXd origPositions;     //3|V|x1 original vertex positions in xyzxyz format - never change this!
     VectorXd currPositions;     //3|V|x1 current vertex positions in xyzxyz format
@@ -55,7 +54,7 @@ public:
         return false;
     }
    
-
+    // Creates the Mass matrix M
     void compute_mass_matrix(SparseMatrix<double>& M) {
       // Initialize M as a sparse matrix with the correct size
       M.resize(currPositions.size(), currPositions.size());
@@ -85,10 +84,10 @@ public:
       M.setFromTriplets(MTriplets.begin(), MTriplets.end());
     }
 
-
-    Eigen::SparseMatrix<double> create_element_stiffness_matrix(const Eigen::Vector4i &tet) {
+    // Creates Ke for a given tet
+    SparseMatrix<double> create_element_stiffness_matrix(const Vector4i &tet) {
         // Compute matrix P
-        Eigen::Matrix4d Pe;
+        Matrix4d Pe;
         for (int i = 0; i < 4; i++) {
             Pe(i, 0) = 1.0;
             Pe(i, 1) = origPositions(3 * tet(i) + 0); // x
@@ -97,7 +96,7 @@ public:
         }
 
         // Compute gradient matrix G
-        Eigen::Matrix<double,3,4> Ge = Pe.inverse().block<3,4>(1,0);
+        Matrix<double,3,4> Ge = Pe.inverse().block<3,4>(1,0);
 
         // Compute exact volume of the tetrahedron (using determinant of Pe)
         double volume = std::abs(Pe.determinant()) / 6.0;
@@ -108,7 +107,7 @@ public:
         
 
         // Stiffness Tensor C
-        Eigen::Matrix<double, 6, 6> C = Eigen::Matrix<double, 6, 6>::Zero();
+        Matrix<double, 6, 6> C = Matrix<double, 6, 6>::Zero();
         C(0,0) = lambda + 2.0*mu;  C(0,1) = lambda;          C(0,2) = lambda;
         C(1,0) = lambda;           C(1,1) = lambda + 2.0*mu; C(1,2) = lambda;
         C(2,0) = lambda;           C(2,1) = lambda;          C(2,2) = lambda + 2.0*mu;
@@ -116,87 +115,84 @@ public:
         C(4,4) = mu;
         C(5,5) = mu;
 
-        // Build the matrix B explicitly (D J u)
-        Eigen::Matrix<double, 6, 12> B = Eigen::Matrix<double, 6, 12>::Zero();
+        // Build the matrix B explicitly (D J u) as in Lecture notes
+        Matrix<double, 6, 12> B = Matrix<double, 6, 12>::Zero();
         for (int i = 0; i < 4; i++) {
             double dNx = Ge(0, i);
             double dNy = Ge(1, i);
             double dNz = Ge(2, i);
             int col = 3 * i;
 
-            // Normal strain terms
             B(0, col + 0) = dNx;
             B(1, col + 1) = dNy;
             B(2, col + 2) = dNz;
-
-            // Shear strain terms (engineering shear strains)
             B(3, col + 0) = 0.5 * dNy; B(3, col + 1) = 0.5 * dNx;
             B(4, col + 1) = 0.5 * dNz; B(4, col + 2) = 0.5 * dNy;
             B(5, col + 2) = 0.5 * dNx; B(5, col + 0) = 0.5 * dNz;
         }
 
         // Compute the element stiffness matrix Ke = B^T * C * B * volume
-        Eigen::Matrix<double, 12, 12> Ke = B.transpose() * C * B * volume;
+        Matrix<double, 12, 12> Ke = B.transpose() * C * B * volume;
 
         return Ke.sparseView();
     }
 
+    
+    // Create the permutation matrix Q
+    void create_permutation_matrix(SparseMatrix<double> &Q) {
+        int T_count = T.rows();                        // number of tetrahedra
+        int numVerts = origPositions.size() / 3;         // number of vertices
+        int rows = 12 * T_count;                         // local DOF count
+        int cols = 3 * numVerts;                         // global DOF count
+        
+        std::vector<Triplet<double>> triplets;
+        triplets.reserve(12 * T_count);
+        
+        // For each tetrahedron e, for each local vertex i, for each coordinate di:
+        // localDOF index = 12*e + 3*i + di, and maps to globalDOF = 3*(T(e,i)) + di.
+        for (int e = 0; e < T_count; e++) {
+            for (int i = 0; i < 4; i++) {
+                int vertexIndex = T(e, i);
+                for (int di = 0; di < 3; di++) {
+                    int localDOF = 12 * e + 3 * i + di;
+                    int globalDOF = 3 * vertexIndex + di;
+                    triplets.emplace_back(localDOF, globalDOF, 1.0);
+                }
+            }
+        }
+        Q.resize(rows, cols);
+        Q.setFromTriplets(triplets.begin(), triplets.end());
+    }
 
-  void create_permutation_matrix(Eigen::SparseMatrix<double> &Q) {
-      int T_count = T.rows();                        // number of tetrahedra
-      int numVerts = origPositions.size() / 3;         // number of vertices
-      int rows = 12 * T_count;                         // local DOF count
-      int cols = 3 * numVerts;                         // global DOF count
-      
-      std::vector<Eigen::Triplet<double>> triplets;
-      triplets.reserve(12 * T_count);
-      
-      // For each tetrahedron e, for each local vertex i, for each coordinate di:
-      // localDOF index = 12*e + 3*i + di, and maps to globalDOF = 3*(T(e,i)) + di.
-      for (int e = 0; e < T_count; e++) {
-          for (int i = 0; i < 4; i++) {
-              int vertexIndex = T(e, i);
-              for (int di = 0; di < 3; di++) {
-                  int localDOF = 12 * e + 3 * i + di;
-                  int globalDOF = 3 * vertexIndex + di;
-                  triplets.emplace_back(localDOF, globalDOF, 1.0);
-              }
-          }
-      }
-      Q.resize(rows, cols);
-      Q.setFromTriplets(triplets.begin(), triplets.end());
-  }
+    
+    // Construct the final K matrix
+    void compute_stiffness_matrix(SparseMatrix<double> &K) {
+        int T_count = T.rows();  // number of tetrahedra
+        int dimKprime = 12 * T_count;
+        
+        // 1. Build the block-diagonal matrix Kprime by computing each element's stiffness matrix.
+        std::vector<SparseMatrix<double>> Kes;
+        SparseMatrix<double> Kprime(dimKprime, dimKprime);
+        
+        for (int e = 0; e < T_count; e++) {
+            // Get the tetrahedron's vertex indices.
+            Vector4i tet = T.row(e);
+            // Compute the element stiffness matrix.
+            SparseMatrix<double> Ke = create_element_stiffness_matrix(tet);
+            Kes.push_back(Ke);
+            
+        }
+        
+        // Stack Matrices 
+        sparse_block_diagonal(Kes, Kprime);
 
-
-  void compute_stiffness_matrix(SparseMatrix<double> &K) {
-      int T_count = T.rows();  // number of tetrahedra
-      int dimKprime = 12 * T_count;
-      
-      // 1. Build the block-diagonal matrix Kprime by computing each element's stiffness matrix.
-      std::vector<SparseMatrix<double>> localK;
-
-      for (int e = 0; e < T_count; e++) {
-          // Get the tetrahedron's vertex indices.
-          Eigen::Vector4i tet = T.row(e);
-          // Compute the element stiffness matrix.
-          SparseMatrix<double> Ke = create_element_stiffness_matrix(tet);
-          localK.push_back(Ke);
-          
-      }
-      Eigen::SparseMatrix<double> Kprime(dimKprime, dimKprime);
-      
-      // Stack Matrices 
-      sparse_block_diagonal(localK, Kprime);
-
-      // 2. Build the assembly (permutation) matrix Q.
-      Eigen::SparseMatrix<double> Q;
-      create_permutation_matrix(Q);
-      
-      // 3. Assemble the global stiffness matrix: K = Q^T * Kprime * Q.
-      // Compute the product in two steps for clarity.
-      Eigen::SparseMatrix<double> A = Kprime * Q;
-      K = Q.transpose() * A;
-  }
+        // 2. Build the assembly (permutation) matrix Q.
+        SparseMatrix<double> Q;
+        create_permutation_matrix(Q);
+        
+        // 3. Assemble the global stiffness matrix: K = Q^T * Kprime * Q.
+        K = Q.transpose() * Kprime * Q;
+    }
 
 
     //Computing the K, M, D matrices per mesh.
@@ -289,7 +285,6 @@ public:
             boundTets(i)=boundTList[i];
         
     }
-    
 };
 
 

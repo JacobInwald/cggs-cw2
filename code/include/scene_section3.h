@@ -32,6 +32,9 @@ public:
     SparseLU<SparseMatrix<double>> ASolver;
     
     vector<Mesh> meshes;
+    
+    double _alpha, _beta;
+
 
     // updates from global values back into mesh values
     void global2Mesh(){
@@ -57,6 +60,8 @@ public:
     // This should be called whenever the timestep changes.
     void init_scene(double _timeStep, const double alpha, const double beta) {
         timeStep = _timeStep;
+        _alpha = alpha;
+        _beta = beta;
         mesh2global();
         global2Mesh();
         // Vectors to collect per-mesh FEM matrices.
@@ -89,6 +94,37 @@ public:
         ASolver.factorize(A);
     }
     
+
+    void construct_matrices(double _timeStep, const double alpha, const double beta) {
+        timeStep = _timeStep;
+        // Vectors to collect per-mesh FEM matrices.
+        std::vector<SparseMatrix<double>> massMatrices;
+        std::vector<SparseMatrix<double>> stiffnessMatrices;
+        std::vector<SparseMatrix<double>> dampingMatrices;
+      
+        // For each mesh, compute its local FEM matrices.
+        for (int i = 0; i < meshes.size(); i++) {
+            if (meshes[i].isFixed) continue;
+            meshes[i].create_global_matrices(timeStep, alpha, beta);
+            massMatrices.push_back(meshes[i].M);
+            stiffnessMatrices.push_back(meshes[i].K);
+            dampingMatrices.push_back(meshes[i].D);
+        }
+        
+        // Assemble the global matrices
+        sparse_block_diagonal(massMatrices, M);
+        sparse_block_diagonal(stiffnessMatrices, K);
+        sparse_block_diagonal(dampingMatrices, D);
+        
+        // Construct lhs
+        A = M + timeStep * D + (timeStep * timeStep) * K;
+        
+        // Pre–factorize A
+        ASolver.analyzePattern(A);
+        ASolver.factorize(A);
+    }
+
+
     // Performs the integration step for global velocities.
     void integrate_global_velocity(double timeStep) {
         // Compute the right-hand side: b = M * v - timeStep * K * (x - x0)
@@ -107,6 +143,7 @@ public:
     // Update the scene: integrate velocity, update positions, and copy back to meshes.
     void update_scene(double timeStep){
         mesh2global();
+        construct_matrices(timeStep, _alpha, _beta);
         integrate_global_velocity(timeStep);
         integrate_global_position(timeStep);
         global2Mesh();

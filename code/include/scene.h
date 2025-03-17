@@ -57,8 +57,8 @@ public:
     // This should be called whenever the timestep changes.
     void init_scene(double _timeStep, const double alpha, const double beta) {
         timeStep = _timeStep;
-        mesh2global();
-        global2Mesh();
+        // mesh2global();
+        // global2Mesh();
         // Vectors to collect per-mesh FEM matrices.
         std::vector<SparseMatrix<double>> massMatrices;
         std::vector<SparseMatrix<double>> stiffnessMatrices;
@@ -127,13 +127,7 @@ public:
         int oldTsize = globalT.rows();
         globalT.conservativeResize(globalT.rows() + T.rows(), 4);
         globalT.block(oldTsize, 0, T.rows(), 4) = T.array() + globalPositions.size()/3;  // offset T to global index
-     
-        // Patch Start
-        int oldOrigSize = globalOrigPositions.size(); 
         globalOrigPositions.conservativeResize(globalOrigPositions.size() + Vxyz.size());
-        globalOrigPositions.segment(oldOrigSize, Vxyz.size()) = m.origPositions;
-        // Patch End
-
         globalPositions.conservativeResize(globalPositions.size() + Vxyz.size());
         globalVelocities.conservativeResize(globalPositions.size());
         int oldIMsize = globalInvMasses.size();
