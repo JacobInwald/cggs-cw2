@@ -38,7 +38,6 @@ MatrixXd to_row_positions(const VectorXd& positions){
 
 void callback_function() {
     ImGui::PushItemWidth(50);
-    if (step++ > endStep) return; 
     ImGui::TextUnformatted("Animation Parameters");
     ImGui::Separator();
     bool changed = ImGui::Checkbox("isAnimating", &isAnimating);
@@ -46,6 +45,7 @@ void callback_function() {
     if (!isAnimating)
         return;
     
+    if (step++ > endStep) return; 
     scene.update_scene(timeStep);
     
     pMesh->updateVertexPositions(to_row_positions(scene.globalPositions));

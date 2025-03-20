@@ -26,6 +26,7 @@ pdfsubject = {},
 pdftitle = {},
 pdfauthor = {}
 }
+
 %-----------------------
 % Begin document
 %-----------------------
@@ -35,6 +36,22 @@ pdfauthor = {}
 \indent \indent {\large s2150204}
 
 \subsubsection*{Section 3 Observations}
+
+This report evaluates the performance of linear FEM for soft-body simulation, where deformations arise solely from initial velocity impulses without external forces. 
+
+In the bunny scene, a model with low initial deformation behaves as expected. The overall deformation remains minimal, with only a slight oscillation of the ears until the system stabilizes. This result confirms that linear FEM works well when deformations are small and that no significant artifacts occur under these conditions.
+
+The cube scene tests two cubes with different material stiffness under medium initial deformation. The compliant cube deforms more noticeably than the stiff one, and although both resolve their deformations, a slight rotation, flattening, and expansion are observed afterward. These outcomes align with predictions: while linear FEM resolves the deformation, its linear approximation introduces predictable artifacts in moderate deformation scenarios.
+
+In the epcot scene, where a high initial deformation is applied, the object flattens and expands as it relaxes. Despite the pronounced deformation, the method successfully brings the system to a resolved state. However, the observed flattening and expansion confirm that linear FEM struggles to accurately capture the behavior under large deformations.
+
+The fertility scene features two instances of the same mesh with differing initial deformations. As anticipated, the instance with high initial deformation exhibits significant early distortion, whereas the low-deformation instance remains relatively stable. Both eventually settle into a resolved configuration, demonstrating that the initial conditions strongly influence the simulation outcome.
+
+A newly added torsion scene further illustrates the method’s behavior. In this scene, a box is subjected to a torsional impulse that causes it to twist. As a result, the box expands along the axis of rotation. This expansion is a predictable artifact of the linear approximation when handling torsional loads, reinforcing the observation that, while linear FEM is efficient and stable, it may not fully capture the complex behavior associated with rotational deformations.
+
+In conclusion, these simulations confirm that linear FEM is computationally efficient and produces stable, plausible results for small to moderate deformations. However, for larger deformations, predictable artifacts such as rotation, flattening, and expansion emerge. These effects are inherent in the linear approximation, suggesting that alternative approaches like the corotational method should be considered when higher accuracy is required under large deformations.
+
+
 
 \subsubsection*{Extension}
 
