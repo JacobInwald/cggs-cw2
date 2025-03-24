@@ -27,7 +27,7 @@ double max_sparse(const Eigen::SparseMatrix<double>& mat, int &rowIndex, int &co
                 return std::numeric_limits<double>::quiet_NaN();
             }
                         
-            if (it.value()>maxValue){
+            if (abs(it.value())>maxValue){
                 maxValue = it.value();
                 rowIndex  = it.row();
                 colIndex = it.col();
