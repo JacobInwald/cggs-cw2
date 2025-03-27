@@ -112,9 +112,9 @@ public:
         C(0,0) = lambda + 2.0*mu;  C(0,1) = lambda;          C(0,2) = lambda;
         C(1,0) = lambda;           C(1,1) = lambda + 2.0*mu; C(1,2) = lambda;
         C(2,0) = lambda;           C(2,1) = lambda;          C(2,2) = lambda + 2.0*mu;
-        C(3,3) = mu;
-        C(4,4) = mu;
-        C(5,5) = mu;
+        C(3,3) = 2*mu;
+        C(4,4) = 2*mu;
+        C(5,5) = 2*mu;
 
         // Build the matrix B explicitly (D J u) as in Lecture notes
         Matrix<double, 6, 12> B = Matrix<double, 6, 12>::Zero();
